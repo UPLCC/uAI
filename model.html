@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+  <head>
+	<meta charset="utf-8" name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+	<title>UPLCC-Training Model</title>
+  </head>
+  <body>	
+	<h3>模型参数量估计：<span id="num">0</span></h3>
+    <label>Epoch训练次数<input type="number" max="10000" min="1" id="ep" value="1000" placeholder="次数越多耗时越长" oninput="if(this.value&&this.value<=10000&&this.value>0){epoch=Number(this.value);}if(!this.value){this.value=1;epoch=1;}if(epoch!==this.value){this.value=epoch;}"/></label><br>
+    <label>MaxLen上下文长度<input type="range" max="568" step="63" min="1" id="maxl" value="64" placeholder="上下文长度" oninput="if(this.value&&this.value<=5000&&this.value>0){maxLen=Number(this.value);count();document.getElementById('len').innerText=this.value;}if(!this.value){this.value=1;maxLen=1;}if(maxLen!==this.value){this.value=maxLen;}"/></label><span id="len">64</span><br>
+    <label>Dimension词向量维度<input type="number" max="1024" min="1" id="dimension" value="64" placeholder="维度越高信息越多" oninput="if(this.value&&this.value<=1024&&this.value>0){d=Number(this.value);count();}if(!this.value){this.value=1;d=1;}if(d!==this.value){this.value=d;}"/></label><br>
+    <button onclick="document.getElementById('sti').innerText=train();iftrain=true;">开始训练</button>
+    <p>训练耗时<span id="sti">0</span>毫秒</p>
+    <input type="text" id="tex" placeholder="输入问题"/>
+    <button onclick="if(tex.value&&tex.value.trim()&&iftrain){document.getElementById('answer').innerText=ask(tex.value);}">发送给模型</button>
+    <button onclick="if(iftrain){downloadmodel();}else{alert('请先训练模型再下载');}">下载模型</button>
+    <p id="answer"></p>
+  </body>
+  <script src="trainnews.js"></script>
+  <script src="mainm.js"></script>
+  <script>
+    let iftrain=false;
+    function count(){
+      let result=623*d+maxLen*d+d*623+12*d*d+3*d*256*2;
+      document.getElementById("num").innerHTML=result;
+    }
+    count();
+    function downloadmodel(){
+      const name = window.prompt('文件名');
+      if (!name || !name.trim()) return;
+      const data = JSON.stringify(allmodel());
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const ele = document.createElement('a');
+      ele.href = url;
+      ele.download = name.endsWith('.json') ? name : name + '.json';
+      ele.style.display = 'none';
+      document.body.appendChild(ele);
+      ele.click();
+      document.body.removeChild(ele);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+  </script>
+</html>
