@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>UPLCC</title>
+</head>
+<body>
+  <input type="text" id="tex"/>
+  <button id="sendBtn">发送</button>
+  <button id="exportModel">导出模型</button>
+  <pre id="dp" style="white-space:pre-wrap;overflow-wrap:break-word;width:100vw;"></pre>
+
+  <script type="module">
+  import ask, { allmodel } from './main.js';
+
+  const $ = id => document.getElementById(id);
+  $('sendBtn').addEventListener('click', () => {
+    $('dp').textContent = ask($('tex').value);
+  });
+  $('tex').addEventListener('keypress', e => {
+    if (e.key === 'Enter') $('sendBtn').click();
+  });
+
+  $('exportModel').addEventListener('click', () => {
+    const snap = allmodel();
+    $('dp').textContent =
+      'export default ' + JSON.stringify(snap, null, 2) + ';\n';
+      localStorage.setItem("uplcc_sca_share_code",JSON.stringify({time:0,code:'export default ' + JSON.stringify(snap, null, 2) + ';'}));
+  });
+  </script>
+</body>
+</html>
