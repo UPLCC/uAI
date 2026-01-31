@@ -4,24 +4,19 @@ const PAD = '<pad>';
 
 let d = 64;
 let maxLen = 64;
-const lr = 0.003;
 let epoch = 1000;
+let nHead = 4;
+let maxtokens = 64;
+const lr = 0.003;
 const nLayer = 3;
+
+let vocab, V, stoi, itos;
+let model;
+let step = 1;
 
 function tokenize(s) {
   return s.toLowerCase().trim().split(/\s+/);
 }
-
-const words = new Set([PAD, SEP, EOS]);
-traindata.forEach(x => {
-  tokenize(x.q).forEach(w => words.add(w));
-  tokenize(x.a).forEach(w => words.add(w));
-});
-
-const vocab = Array.from(words);
-const V = vocab.length;
-const stoi = Object.fromEntries(vocab.map((w, i) => [w, i]));
-const itos = Object.fromEntries(vocab.map((w, i) => [i, w]));
 
 class Mat {
   constructor(r, c) {
@@ -131,22 +126,6 @@ class Graph {
   }
 }
 
-const model = {
-  wte: Mat.rand(V, d),
-  wpe: Mat.rand(maxLen, d),
-  layers: Array.from({ length: nLayer }, () => ({
-    wq: Mat.rand(d, d),
-    wk: Mat.rand(d, d),
-    wv: Mat.rand(d, d),
-    wo: Mat.rand(d, d),
-    w1: Mat.rand(d, d * 4),
-    w2: Mat.rand(d * 4, d)
-  })),
-  wh: Mat.rand(d, V)
-};
-
-let step = 1;
-
 function adam(p) {
   const b1 = 0.9, b2 = 0.999, e = 1e-8;
   for (let i = 0; i < p.w.length; i++) {
@@ -161,35 +140,71 @@ function adam(p) {
 
 function forward(ids, g) {
   const n = ids.length;
+  const dh = d / nHead;
   let x = new Mat(n, d);
   for (let i = 0; i < n; i++) {
     const e = g.add(g.embed(model.wte, ids[i]), g.embed(model.wpe, i));
     for (let j = 0; j < d; j++) x.w[i * d + j] = e.w[j];
   }
-
   for (const L of model.layers) {
-    const Q = g.matmul(x, L.wq);
-    const K = g.matmul(x, L.wk);
-    const Vp = g.matmul(x, L.wv);
-    const att = new Mat(n, n);
-    const s = 1 / Math.sqrt(d);
-    for (let i = 0; i < n; i++) {
-      for (let j = 0; j <= i; j++) {
-        let v = 0;
-        for (let k = 0; k < d; k++) v += Q.w[i * d + k] * K.w[j * d + k];
-        att.w[i * n + j] = v * s;
+    const heads = [];
+    for (let h = 0; h < nHead; h++) {
+      const Q = g.matmul(x, L.wq[h]);
+      const K = g.matmul(x, L.wk[h]);
+      const Vp = g.matmul(x, L.wv[h]);
+      const att = new Mat(n, n);
+      const s = 1 / Math.sqrt(d / nHead);
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j <= i; j++) {
+          let v = 0;
+          for (let k = 0; k < d / nHead; k++) v += Q.w[i * (d / nHead) + k] * K.w[j * (d / nHead) + k];
+          att.w[i * n + j] = v * s;
+        }
       }
+      heads.push(g.matmul(g.softmax(att), Vp));
     }
-    const aw = g.softmax(att);
-    const ao = g.matmul(aw, Vp);
-    x = g.add(x, g.matmul(ao, L.wo));
+    const cat = new Mat(n, d);
+    for (let i = 0; i < n; i++)
+      for (let h = 0; h < nHead; h++)
+        for (let k = 0; k < d / nHead; k++)
+          cat.w[i * d + h * (d / nHead) + k] = heads[h].w[i * (d / nHead) + k];
+    x = g.add(x, g.matmul(cat, L.wo));
     x = g.add(x, g.matmul(g.tanh(g.matmul(x, L.w1)), L.w2));
   }
   return g.matmul(x, model.wh);
 }
 
 function train() {
-  const timea=Date.now();
+  traindata = useTraindata;
+
+  const time = Date.now();
+  step = 1;
+  const dh = d / nHead;
+
+  const words = new Set([PAD, SEP, EOS]);
+  traindata.forEach(x => {
+    tokenize(x.q).forEach(w => words.add(w));
+    tokenize(x.a).forEach(w => words.add(w));
+  });
+  vocab = Array.from(words);
+  V = vocab.length;
+  stoi = Object.fromEntries(vocab.map((w, i) => [w, i]));
+  itos = Object.fromEntries(vocab.map((w, i) => [i, w]));
+
+  model = {
+    wte: Mat.rand(V, d),
+    wpe: Mat.rand(maxLen, d),
+    layers: Array.from({ length: nLayer }, () => ({
+      wq: Array.from({ length: nHead }, () => Mat.rand(d, dh)),
+      wk: Array.from({ length: nHead }, () => Mat.rand(d, dh)),
+      wv: Array.from({ length: nHead }, () => Mat.rand(d, dh)),
+      wo: Mat.rand(d, d),
+      w1: Mat.rand(d, d * 4),
+      w2: Mat.rand(d * 4, d)
+    })),
+    wh: Mat.rand(d, V)
+  };
+
   for (let e = 0; e < epoch; e++) {
     for (let i = 0; i < traindata.length; i++) {
       step++;
@@ -210,17 +225,23 @@ function train() {
         }
       }
       g.backward();
-      for (const k in model) {
-        if (Array.isArray(model[k])) model[k].forEach(l => Object.values(l).forEach(adam));
-        else adam(model[k]);
-      }
+      adam(model.wte);
+      adam(model.wpe);
+      adam(model.wh);
+      model.layers.forEach(L => {
+        L.wq.forEach(adam);
+        L.wk.forEach(adam);
+        L.wv.forEach(adam);
+        adam(L.wo);
+        adam(L.w1);
+        adam(L.w2);
+      });
     }
   }
-  return Date.now()-timea;
-  
+  return Date.now() - time;
 }
 
-function generate(text, n = 64) {
+function generate(text, n = maxtokens) {
   let seq = [...tokenize(text), SEP].map(w => stoi[w]).filter(x => x != null);
   const sepId = stoi[SEP], eosId = stoi[EOS];
   for (let i = 0; i < n; i++) {
@@ -245,13 +266,7 @@ function generate(text, n = 64) {
   return w.slice(w.indexOf(SEP) + 1).join(' ');
 }
 
-function ask(q) {
-  return generate(q);
-}
-
-function alltokens() {
-  return vocab.map((c, i) => ({ token: c, vector: Array.from(model.wte.w.slice(i * d, (i + 1) * d)) }));
-}
+function ask(q) { return generate(q); }
 
 function allmodel() {
   const w = {
@@ -259,9 +274,9 @@ function allmodel() {
     wpe: Array.from(model.wpe.w),
     wh: Array.from(model.wh.w),
     layers: model.layers.map(L => ({
-      wq: Array.from(L.wq.w),
-      wk: Array.from(L.wk.w),
-      wv: Array.from(L.wv.w),
+      wq: L.wq.map(mat => Array.from(mat.w)),
+      wk: L.wk.map(mat => Array.from(mat.w)),
+      wv: L.wv.map(mat => Array.from(mat.w)),
       wo: Array.from(L.wo.w),
       w1: Array.from(L.w1.w),
       w2: Array.from(L.w2.w)

@@ -6,23 +6,45 @@
   </head>
   <body>	
 	<h3>模型参数量估计：<span id="num">0</span></h3>
-    <label>Epoch训练次数<input type="number" max="10000" min="1" id="ep" value="1000" placeholder="次数越多耗时越长" oninput="if(this.value&&this.value<=10000&&this.value>0){epoch=Number(this.value);}if(!this.value){this.value=1;epoch=1;}if(epoch!==this.value){this.value=epoch;}"/></label><br>
-    <label>MaxLen上下文长度<input type="range" max="568" step="63" min="1" id="maxl" value="64" placeholder="上下文长度" oninput="if(this.value&&this.value<=5000&&this.value>0){maxLen=Number(this.value);count();document.getElementById('len').innerText=this.value;}if(!this.value){this.value=1;maxLen=1;}if(maxLen!==this.value){this.value=maxLen;}"/></label><span id="len">64</span><br>
-    <label>Dimension词向量维度<input type="number" max="1024" min="1" id="dimension" value="64" placeholder="维度越高信息越多" oninput="if(this.value&&this.value<=1024&&this.value>0){d=Number(this.value);count();}if(!this.value){this.value=1;d=1;}if(d!==this.value){this.value=d;}"/></label><br>
-    <button onclick="document.getElementById('sti').innerText=train();iftrain=true;">开始训练</button>
-    <p>训练耗时<span id="sti">0</span>毫秒</p>
+    <label>训练次数<input type="number" max="10000" min="1" id="ep" value="1000" placeholder="次数越多耗时越长" oninput="if(this.value&&this.value<=10000&&this.value>0){epoch=Number(this.value);}if(!this.value){this.value=1;epoch=1;}if(epoch!==this.value){this.value=epoch;}"/></label><br>
+    <label>上下文长度<input type="range" max="20000" step="1" min="1" id="maxl" value="64" placeholder="上下文长度" oninput="if(this.value&&this.value<=20000&&this.value>0){maxLen=Number(this.value);count();document.getElementById('len').innerText=this.value;}if(!this.value){this.value=1;maxLen=1;}if(maxLen!==this.value){this.value=maxLen;}"/></label><span id="len" onclick="let maxlnum=window.prompt('maxLen数值(1-20000)');if(!maxlnum||!maxlnum.trim()){maxlnum=64;}maxl.value=maxlnum;if(maxl.value&&maxl.value<=20000&&maxl.value>0){maxLen=Number(maxl.value);count();document.getElementById('len').innerText=maxl.value;}if(!this.innerText){maxl.value=1;maxLen=1;}if(maxLen!==this.innerText){this.innerText=maxLen;}count();">64</span><br>
+    <label>词向量维度<input type="number" max="16384" min="16" id="dimension" value="64" placeholder="维度越高信息越多" oninput="if(this.value&&this.value>15){d=Number(this.value);count();}if(this.value<16){this.value=16;d=16;}else if(d>16384){this.value=16384;d=16384;}if(d!==this.value){this.value=d;}count();"/></label><br>
+    <label>Transformer多头注意力头数<input type="range" max="10" min="1" step="1" value="4" oninput="nHead=Number(this.value);document.getElementById('nhe').innerText=nHead;count();"/></label><span id="nhe">4</span><br>
+    <label><span onclick="alert('trainnews.js 大约50KB\ntrainnewsA.js 大约6KB');">训练数据</span><input type="text" value="trainnews.js" oninput="if(this.value=='trainnewsA.js'){useTraindata=traindataA;}else{useTraindata=traindataB;}count();"/></label><br>
+    <label>最大输出Token数<input type="number" value="64" min="1" max="262144" oninput="if(this.value&&this.value>0&&this.value<=262144){maxtokens=this.value;}if(!this.value){this.value=1;maxtokens=1;}if(this.value>262144){this.value=262144;maxtokens=262144;}"/></label><br>
+    <button onclick="if(d%nHead===0){document.getElementById('sti').innerText=train();document.getElementById('stim').innerText=Number(document.getElementById('sti').innerText)/1000;iftrain=true;}else{alert('请让词向量维度量与Transformer多头注意力头数成整数倍再进行训练');}">开始训练</button>
+    <p>训练耗时<span id="sti">0</span>毫秒(<span id="stim">0</span>秒)</p>
     <input type="text" id="tex" placeholder="输入问题"/>
     <button onclick="if(tex.value&&tex.value.trim()&&iftrain){document.getElementById('answer').innerText=ask(tex.value);}">发送给模型</button>
     <button onclick="if(iftrain){downloadmodel();}else{alert('请先训练模型再下载');}">下载模型</button>
     <p id="answer"></p>
   </body>
   <script src="trainnews.js"></script>
+  <script src="trainnewsA.js"></script>
+  <script>
+    window.useTraindata=traindataB;
+  </script>
   <script src="mainm.js"></script>
   <script>
     let iftrain=false;
-    function count(){
-      let result=623*d+maxLen*d+d*623+12*d*d+3*d*256*2;
-      document.getElementById("num").innerHTML=result;
+    function count() {
+      if (!window.useTraindata) {
+        document.getElementById("num").innerText = 0;
+        return;
+      }
+      const SEP = '<sep>', EOS = '<eos>', PAD = '<pad>';
+      const words = new Set([PAD, SEP, EOS]);
+      window.useTraindata.forEach(x => {
+        tokenize(x.q).forEach(w => words.add(w));
+        tokenize(x.a).forEach(w => words.add(w));
+      });
+      const V = words.size;
+      let embeddingParams = V * d;
+      let posEmbeddingParams = maxLen * d;
+      let transformerParams = nLayer * (12 * d * d);
+      let outputParams = d * V;
+      let total = embeddingParams + posEmbeddingParams + transformerParams + outputParams;
+      document.getElementById("num").innerText = total;
     }
     count();
     function downloadmodel(){
